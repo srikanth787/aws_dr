@@ -1,16 +1,38 @@
-# This is a sample Python script.
+# main.py
 
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
+import argparse
+from ec2.ec2_details import EC2Details
+from utils.logger import CustomLogger
+from utils.credentials_handler import CredentialsHandler
+
+logger = CustomLogger(__name__).get_logger()
 
 
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press Ctrl+F8 to toggle the breakpoint.
+def main():
+    parser = argparse.ArgumentParser(description="Fetch EC2 instance details based on specified criteria.")
+    parser.add_argument("--az", required=True, help="Availability zone to filter EC2 instances.")
+    parser.add_argument("--account", required=True, help="AWS account ID.")
+    parser.add_argument("--region", required=True, help="AWS region.")
+    parser.add_argument("--tag_file", default=None, help="Path to file containing tag key-value pairs.")
+    parser.add_argument("--profile", default='default', help="AWS CLI profile name. Defaults to 'default'.")
+
+    args = parser.parse_args()
+
+    # Displaying provided command line arguments
+    logger.info("Provided Command Line Arguments:")
+    for arg, value in vars(args).items():
+        logger.info(f"{arg}: {value}")
+
+    try:
+        credentials = CredentialsHandler(args.profile)
+        session = credentials.get_session()
+
+        ec2_details = EC2Details(session)
+        ec2_details.display_instances(args.az, args.account, args.region, args.tag_file)
+
+    except Exception as e:
+        logger.error(f"An error occurred: {e}")
 
 
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    print_hi('PyCharm')
-
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+if __name__ == "__main__":
+    main()
