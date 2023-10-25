@@ -1,51 +1,79 @@
-import logging
-import os
-from datetime import datetime
+import boto3
+from botocore.exceptions import NoCredentialsError
 
 
-class CustomLogger:
-    def __init__(self, name="aws_dr_scripts"):
+class CredentialsHandler:
+
+    def __init__(self, profile_name=None, role_arn=None):
         """
-        Initialize the CustomLogger class.
+        Initialize the CredentialsHandler with an optional profile name and/or role ARN.
 
-        Parameters:
-        - name: The name of the logger.
+        Args:
+        - profile_name (str): Name of the AWS profile to use. Defaults to None.
+        - role_arn (str): ARN of the role to assume. Defaults to None.
         """
-        self.name = name
-        self.logger = logging.getLogger(self.name)
-        self._setup()
+        self.session = boto3.Session(profile_name=profile_name) if profile_name else boto3.Session()
+        self.client = self.session.client('sts')
 
-    def _setup(self):
+        # If role_arn is provided, assume the role
+        if role_arn:
+            credentials = self._assume_role(role_arn)
+            self.session = boto3.Session(
+                aws_access_key_id=credentials['AccessKeyId'],
+                aws_secret_access_key=credentials['SecretAccessKey'],
+                aws_session_token=credentials['SessionToken']
+            )
+
+    def _assume_role(self, role_arn):
         """
-        Setup the logger configurations.
+        Assume an IAM role and return the temporary credentials.
+
+        Args:
+        - role_arn (str): ARN of the role to assume.
+
+        Returns:
+        - dict: Temporary AWS credentials.
         """
-        log_format = "%(asctime)s - %(name)s - %(lineno)d - %(levelname)s - %(message)s"
-        self.logger.setLevel(logging.INFO)
+        try:
+            response = self.client.assume_role(
+                RoleArn=role_arn,
+                RoleSessionName="AssumeRoleSession"
+            )
+            return response['Credentials']
+        except NoCredentialsError:
+            raise ValueError("No AWS credentials found.")
+        except Exception as e:
+            raise ValueError(f"Failed to assume role: {e}")
 
-        # Define the path to store logs using the current date
-        base_path = "logs"
-        current_date = datetime.now().strftime('%Y-%m-%d')
-        log_path = os.path.join(base_path, current_date)
-
-        # If the path doesn't exist, create the directories
-        if not os.path.exists(log_path):
-            os.makedirs(log_path)
-
-        # Create and add file handler to logger
-        log_file = os.path.join(log_path, f"{self.name}.log")
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setFormatter(logging.Formatter(log_format))
-        self.logger.addHandler(file_handler)
-
-        # Also add stream handler to logger (optional, can be removed if not needed)
-        stream_handler = logging.StreamHandler()
-        stream_handler.setFormatter(logging.Formatter(log_format))
-        self.logger.addHandler(stream_handler)
-
-    def get_logger(self):
+    def get_session(self):
         """
-        Return the logger instance.
+        Get the current Boto3 session.
+
+        Returns:
+        - boto3.Session: Current Boto3 session.
         """
-        return self.logger
+        return self.session
 
+    def get_resource(self, service_name):
+        """
+        Get a Boto3 resource for the given service name.
 
+        Args:
+        - service_name (str): Name of the AWS service (e.g., "ec2", "s3").
+
+        Returns:
+        - boto3.resource: Boto3 resource for the specified service.
+        """
+        return self.session.resource(service_name)
+
+    def get_client(self, service_name):
+        """
+        Get a Boto3 client for the given service name.
+
+        Args:
+        - service_name (str): Name of the AWS service (e.g., "ec2", "s3").
+
+        Returns:
+        - boto3.client: Boto3 client for the specified service.
+        """
+        return self.session.client(service_name)
