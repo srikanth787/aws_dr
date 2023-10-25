@@ -1,50 +1,51 @@
-# utils/credentials_handler.py
+import logging
+import os
+from datetime import datetime
 
-import boto3
 
-class CredentialsHandler:
-    def __init__(self, profile_name=None, role_arn=None, session_name=None):
+class CustomLogger:
+    def __init__(self, name="aws_dr_scripts"):
         """
-        Initialize the credentials handler for AWS services.
+        Initialize the CustomLogger class.
 
         Parameters:
-        - profile_name (str, optional): The AWS CLI profile name.
-        - role_arn (str, optional): The ARN of the role to assume. Defaults to None.
-        - session_name (str, optional): The session name to use when assuming a role. Defaults to None.
+        - name: The name of the logger.
         """
-        self.profile_name = profile_name
-        self.role_arn = role_arn
-        self.session_name = session_name
+        self.name = name
+        self.logger = logging.getLogger(self.name)
+        self._setup()
 
-    def get_session(self):
+    def _setup(self):
         """
-        Get a boto3 session for the specified profile or by assuming a role.
-
-        Returns:
-        boto3.Session: A session for the specified AWS profile or assumed role.
+        Setup the logger configurations.
         """
-        my_config = boto3.Config(
-            retries={
-                'max_attempts': 10,
-                'mode': 'standard'
-            }
-        )
+        log_format = "%(asctime)s - %(name)s - %(lineno)d - %(levelname)s - %(message)s"
+        self.logger.setLevel(logging.INFO)
 
-        # Start a session using profile or default behavior
-        session = boto3.Session(profile_name=self.profile_name, config=my_config) if self.profile_name else boto3.Session(config=my_config)
+        # Define the path to store logs using the current date
+        base_path = "logs"
+        current_date = datetime.now().strftime('%Y-%m-%d')
+        log_path = os.path.join(base_path, current_date)
 
-        # If a role ARN is provided, assume that role
-        if self.role_arn:
-            sts_client = session.client('sts')
-            assumed_role = sts_client.assume_role(
-                RoleArn=self.role_arn,
-                RoleSessionName=self.session_name or 'AssumedRoleSession'
-            )
-            session = boto3.Session(
-                aws_access_key_id=assumed_role['Credentials']['AccessKeyId'],
-                aws_secret_access_key=assumed_role['Credentials']['SecretAccessKey'],
-                aws_session_token=assumed_role['Credentials']['SessionToken'],
-                config=my_config
-            )
+        # If the path doesn't exist, create the directories
+        if not os.path.exists(log_path):
+            os.makedirs(log_path)
 
-        return session
+        # Create and add file handler to logger
+        log_file = os.path.join(log_path, f"{self.name}.log")
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setFormatter(logging.Formatter(log_format))
+        self.logger.addHandler(file_handler)
+
+        # Also add stream handler to logger (optional, can be removed if not needed)
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(logging.Formatter(log_format))
+        self.logger.addHandler(stream_handler)
+
+    def get_logger(self):
+        """
+        Return the logger instance.
+        """
+        return self.logger
+
+

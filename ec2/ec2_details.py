@@ -1,89 +1,68 @@
-# ec2/ec2_details.py
-
 import boto3
 import csv
-from utils.logger import CustomLogger
-from datetime import datetime
 import os
-
-logger = CustomLogger(__name__).get_logger()
+from datetime import datetime
 
 
 class EC2Details:
-    def __init__(self, session):
+
+    def __init__(self, session, tags=None, availability_zone=None):
+        """
+        Initialize the EC2Details class.
+
+        Parameters:
+        - session: boto3 Session.
+        - tags: Dictionary of tag keys and values for filtering EC2 instances.
+        - availability_zone: The availability zone to filter the EC2 instances.
+        """
         self.session = session
-        self.ec2 = self.session.resource('ec2')
-        self.client = self.session.client('autoscaling')
+        self.ec2_client = session.client('ec2')
+        self.tags = tags or {}
+        self.availability_zone = availability_zone
 
-    def _get_asg_instance_ids(self):
-        """Retrieve all instance IDs that are part of any ASG."""
-        instance_ids = []
-        paginator = self.client.get_paginator('describe_auto_scaling_instances')
-        for page in paginator.paginate():
-            for instance in page['AutoScalingInstances']:
-                instance_ids.append(instance['InstanceId'])
-        return instance_ids
-
-    def _get_tags_from_file(self, tag_file_path):
-        """Parse the tag file and return a list of tag filters."""
-        tag_filters = []
-        try:
-            with open(tag_file_path, 'r') as file:
-                lines = file.readlines()
-                for line in lines:
-                    key, value = line.strip().split('=')
-                    tag_filters.append({'Name': f'tag:{key}', 'Values': [value]})
-            return tag_filters
-        except Exception as e:
-            logger.error(f"Error reading tag file: {e}")
-            return []
-
-    def get_instances_not_in_asg_with_tags(self, availability_zone, tag_file_path):
-        asg_instance_ids = set(self._get_asg_instance_ids())
-        tag_filters = self._get_tags_from_file(tag_file_path)
-
+    def _get_instances(self):
+        """
+        Get EC2 instances based on tags and availability zone.
+        """
         filters = [
-            {
-                'Name': 'availability-zone',
-                'Values': [availability_zone]
-            }
+            {'Name': 'instance-state-name', 'Values': ['running']}
         ]
-        filters.extend(tag_filters)  # Add tag filters
 
-        try:
-            all_instances = list(self.ec2.instances.filter(Filters=filters))
-            # Now, filter out instances that are in ASGs
-            non_asg_instances = [instance for instance in all_instances if instance.id not in asg_instance_ids]
-            return non_asg_instances
-        except Exception as e:
-            logger.error(f"Error fetching instances: {e}")
-            return []
+        if self.availability_zone:
+            filters.append({'Name': 'availability-zone', 'Values': [self.availability_zone]})
 
-    def _generate_file_path(self, az, account, region, filename_prefix):
+        if self.tags:
+            for key, value in self.tags.items():
+                filters.append({'Name': f'tag:{key}', 'Values': [value]})
+
+        paginator = self.ec2_client.get_paginator('describe_instances')
+        response_iterator = paginator.paginate(Filters=filters, PaginationConfig={'PageSize': 100})
+
+        for page in response_iterator:
+            for reservation in page['Reservations']:
+                for instance in reservation['Instances']:
+                    yield instance
+
+    def write_to_csv(self, account, region, az):
+        """
+        Write EC2 details to a CSV file.
+        """
         current_date = datetime.now().strftime('%Y-%m-%d')
-        directory_path = f"output/{account}/{region}/{az}/{current_date}/"
+        base_path = f"outputs/{account}/{region}/{az}/{current_date}"
+        if not os.path.exists(base_path):
+            os.makedirs(base_path)
 
-        # Ensure the directory exists
-        if not os.path.exists(directory_path):
-            os.makedirs(directory_path)
+        csv_file = os.path.join(base_path, "ec2_details.csv")
 
-        return os.path.join(directory_path, f"{filename_prefix}.csv")
+        with open(csv_file, 'w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(["Instance ID", "Private IP Address", "Instance Type"])
 
-    def display_instances(self, availability_zone, account, region, tag_file_path):
-        instances = self.get_instances_not_in_asg_with_tags(availability_zone, tag_file_path)
-        file_path = self._generate_file_path(availability_zone, account, region, "ec2_instances_not_in_asg")
-        self._write_to_csv(instances, file_path)
+            for instance in self._get_instances():
+                writer.writerow(
+                    [instance["InstanceId"], instance.get("PrivateIpAddress", ""), instance["InstanceType"]])
 
-    def _write_to_csv(self, instances, file_path):
-        with open(file_path, 'w', newline='') as csvfile:
-            fieldnames = ['instance_id', 'private_ip', 'instance_type']
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-
-            writer.writeheader()  # write the header
-            for instance in instances:
-                writer.writerow({
-                    'instance_id': instance.id,
-                    'private_ip': instance.private_ip_address,
-                    'instance_type': instance.instance_type
-                })
-            logger.info(f"Data written to {file_path}")
+# Example usage:
+# session = boto3.Session(region_name="us-west-2")
+# ec2_details = EC2Details(session, tags={"Name": "my-instance"}, availability_zone="us-west-2a")
+# ec2_details.write_to_csv("123456789012", "us-west-2", "us-west-2a")

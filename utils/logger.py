@@ -1,45 +1,51 @@
-# utils/logger.py
-
 import logging
 import os
-import sys
+from datetime import datetime
 
 
 class CustomLogger:
-    def __init__(self, name, log_file="logs/main.log"):
+    def __init__(self, name="aws_dr_scripts"):
         """
-        Initialize a logger that logs to both the console and a file.
+        Initialize the CustomLogger class.
 
         Parameters:
-        - name (str): The name of the logger, typically __name__.
-        - log_file (str, optional): The path to the log file. Defaults to "logs/main.log".
+        - name: The name of the logger.
         """
+        self.name = name
+        self.logger = logging.getLogger(self.name)
+        self._setup()
 
-        # Ensure the directory exists
-        log_dir = os.path.dirname(log_file)
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
+    def _setup(self):
+        """
+        Setup the logger configurations.
+        """
+        log_format = "%(asctime)s - %(name)s - %(lineno)d - %(levelname)s - %(message)s"
+        self.logger.setLevel(logging.INFO)
 
-        formatter = logging.Formatter(fmt='%(asctime)s - %(levelname)s - %(module)s - %(message)s')
+        # Define the path to store logs using the current date
+        base_path = "logs"
+        current_date = datetime.now().strftime('%Y-%m-%d')
+        log_path = os.path.join(base_path, current_date)
 
-        # File handler for logging to a file
-        file_handler = logging.FileHandler(log_file, mode='a')
-        file_handler.setFormatter(formatter)
+        # If the path doesn't exist, create the directories
+        if not os.path.exists(log_path):
+            os.makedirs(log_path)
 
-        # Console handler for logging to stdout
-        console_handler = logging.StreamHandler(stream=sys.stdout)
-        console_handler.setFormatter(formatter)
-
-        self.logger = logging.getLogger(name)
-        self.logger.setLevel(logging.DEBUG)
+        # Create and add file handler to logger
+        log_file = os.path.join(log_path, f"{self.name}.log")
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setFormatter(logging.Formatter(log_format))
         self.logger.addHandler(file_handler)
-        self.logger.addHandler(console_handler)
+
+        # Also add stream handler to logger (optional, can be removed if not needed)
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(logging.Formatter(log_format))
+        self.logger.addHandler(stream_handler)
 
     def get_logger(self):
         """
-        Returns the configured logger object.
-
-        Returns:
-        logging.Logger: The configured logger object.
+        Return the logger instance.
         """
         return self.logger
+
+
