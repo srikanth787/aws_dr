@@ -1,68 +1,61 @@
 import boto3
 import csv
 import os
-from datetime import datetime
+from utils.credentials_handler import AWSHandler
+from utils.utilities import Utilities
+from utils.logger import Logger
 
 
 class EC2Details:
 
-    def __init__(self, session, tags=None, availability_zone=None):
+    def __init__(self, account, region, az):
+        self.account = account
+        self.region = region
+        self.az = az
+        self.session = AWSHandler().create_session(account, region)
+        self.ec2_client = self.session.client('ec2')
+        self.logger = Logger(account, region, az).get_logger()
+        self.utilities = Utilities(account, region, az)
+
+    def filter_instances(self, tags):
         """
-        Initialize the EC2Details class.
-
-        Parameters:
-        - session: boto3 Session.
-        - tags: Dictionary of tag keys and values for filtering EC2 instances.
-        - availability_zone: The availability zone to filter the EC2 instances.
+        Filter EC2 instances based on tags, availability zone, and if they're running.
         """
-        self.session = session
-        self.ec2_client = session.client('ec2')
-        self.tags = tags or {}
-        self.availability_zone = availability_zone
+        tag_filters = [{'Name': f'tag:{key}', 'Values': [value]} for key, value in tags.items()]
+        az_filter = {'Name': 'availability-zone', 'Values': [self.az]}
+        running_filter = {'Name': 'instance-state-name', 'Values': ['running']}
 
-    def _get_instances(self):
+        try:
+            response = self.ec2_client.describe_instances(Filters=[*tag_filters, az_filter, running_filter])
+            return [instance for reservation in response['Reservations'] for instance in reservation['Instances']]
+        except Exception as e:
+            self.logger.error(f"Error fetching EC2 instances: {str(e)}")
+            return []
+
+    def write_to_csv(self, instances):
         """
-        Get EC2 instances based on tags and availability zone.
+        Write EC2 instance details to a CSV file.
         """
-        filters = [
-            {'Name': 'instance-state-name', 'Values': ['running']}
-        ]
+        file_path = self.utilities.get_output_path('ec2_details.csv')
 
-        if self.availability_zone:
-            filters.append({'Name': 'availability-zone', 'Values': [self.availability_zone]})
-
-        if self.tags:
-            for key, value in self.tags.items():
-                filters.append({'Name': f'tag:{key}', 'Values': [value]})
-
-        paginator = self.ec2_client.get_paginator('describe_instances')
-        response_iterator = paginator.paginate(Filters=filters, PaginationConfig={'PageSize': 100})
-
-        for page in response_iterator:
-            for reservation in page['Reservations']:
-                for instance in reservation['Instances']:
-                    yield instance
-
-    def write_to_csv(self, account, region, az):
-        """
-        Write EC2 details to a CSV file.
-        """
-        current_date = datetime.now().strftime('%Y-%m-%d')
-        base_path = f"outputs/{account}/{region}/{az}/{current_date}"
-        if not os.path.exists(base_path):
-            os.makedirs(base_path)
-
-        csv_file = os.path.join(base_path, "ec2_details.csv")
-
-        with open(csv_file, 'w', newline='') as file:
+        with open(file_path, 'w', newline='') as file:
             writer = csv.writer(file)
-            writer.writerow(["Instance ID", "Private IP Address", "Instance Type"])
+            writer.writerow(['Instance ID', 'Private IP Address', 'Instance Type'])
 
-            for instance in self._get_instances():
+            for instance in instances:
                 writer.writerow(
-                    [instance["InstanceId"], instance.get("PrivateIpAddress", ""), instance["InstanceType"]])
+                    [instance['InstanceId'], instance.get('PrivateIpAddress', 'N/A'), instance['InstanceType']])
 
-# Example usage:
-# session = boto3.Session(region_name="us-west-2")
-# ec2_details = EC2Details(session, tags={"Name": "my-instance"}, availability_zone="us-west-2a")
-# ec2_details.write_to_csv("123456789012", "us-west-2", "us-west-2a")
+        self.logger.info(f"EC2 details written to: {file_path}")
+
+    def fetch_and_store(self, tag_file):
+        """
+        Fetch EC2 instances and write them to a CSV file.
+        """
+        tags = self.utilities.read_tags_from_file(tag_file)
+        instances = self.filter_instances(tags)
+        if instances:
+            self.write_to_csv(instances)
+        else:
+            self.logger.info("No matching EC2 instances found.")
+

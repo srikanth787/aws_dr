@@ -1,48 +1,66 @@
-import json
 import os
+import json
+from datetime import datetime
 
+class Utilities:
 
-class Utility:
+    @staticmethod
+    def get_current_date():
+        """
+        Returns the current date in YYYY-MM-DD format.
+
+        Returns:
+            str: Current date in YYYY-MM-DD format.
+        """
+        return datetime.now().strftime('%Y-%m-%d')
 
     @staticmethod
     def read_tags_from_file(file_path):
         """
-        Reads a JSON file containing tags and returns a list of tag dictionaries.
+        Read the tag values from a specified file.
 
-        :param file_path: Path to the JSON file containing tags.
-        :return: List of tag dictionaries.
+        Parameters:
+            file_path (str): Path to the file containing tag values.
+
+        Returns:
+            list: List of tags.
         """
         if not os.path.exists(file_path):
-            raise ValueError(f"The provided file path {file_path} does not exist.")
+            raise FileNotFoundError(f"File not found: {file_path}")
 
         with open(file_path, 'r') as file:
-            tags = json.load(file)
+            tags = file.readlines()
 
-        if not isinstance(tags, list):
-            raise ValueError("The provided JSON file does not contain a list of tags.")
-
-        return tags
+        # Strip out any newlines or spaces
+        return [tag.strip() for tag in tags]
 
     @staticmethod
-    def generate_output_path(account, region, az, date):
+    def save_to_json(data, file_path):
         """
-        Generates an output path based on provided parameters.
+        Save a dictionary to a specified JSON file.
 
-        :param account: AWS account.
-        :param region: AWS region.
-        :param az: AWS availability zone.
-        :param date: Current date in 'YYYY-MM-DD' format.
-        :return: Output path string.
+        Parameters:
+            data (dict): Data to be saved to file.
+            file_path (str): Path to the JSON file.
         """
-        return os.path.join("outputs", account, region, az, date)
+        with open(file_path, 'w') as file:
+            json.dump(data, file, indent=4)
 
     @staticmethod
-    def check_file_directory(file_path):
+    def load_from_json(file_path):
         """
-        Checks if the directory for the given file path exists, if not, creates it.
+        Load a dictionary from a specified JSON file.
 
-        :param file_path: Path to the file.
+        Parameters:
+            file_path (str): Path to the JSON file.
+
+        Returns:
+            dict: Data loaded from the JSON file.
         """
-        directory = os.path.dirname(file_path)
-        if directory and not os.path.exists(directory):
-            os.makedirs(directory)
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"File not found: {file_path}")
+
+        with open(file_path, 'r') as file:
+            data = json.load(file)
+
+        return data
